@@ -8,7 +8,28 @@ See README.md for more information.
 """
 
 
+import os
+import subprocess
+import sys
+
+
+# check for and set up development path
+_pwd = os.path.dirname( os.path.realpath( __file__ ) )
+_modules_path = os.path.join( os.path.dirname( _pwd ), 'up' )
+if os.path.exists( _modules_path ):
+    sys.path.append( _modules_path )
+
+# up module imports
+import conf
+
+
 __version__ = '0.0.0'
+
+#=============================================================================
+# Module Variables
+
+_rsync       = '/usr/local/bin/rsync'
+_rsync_flags = [ '-avz', '--delete' ]
 
 
 #=============================================================================
@@ -20,8 +41,80 @@ def backup( args ):
     @return     Shell exit status (0 on success)
     """
 
-    ### ZIH
+    # set basic backup command arguments
+    arguments = [ _rsync ] + _rsync_flags
 
+    # check for a test command
+    if args.test == True:
+
+        # load the test configuration file without validation
+        cfile  = os.path.join( os.path.dirname( _pwd ), 'data', 'up.conf' )
+        config = conf.load_conf( cfile, validate = False )
+        paths  = config[ 'back' ][ 'paths' ]
+
+        # display the commands that would be run for each backup
+        for pair in paths:
+            sync_args = arguments + pair
+            print( subprocess.list2cmdline( sync_args ) )
+
+    # not a test command
+    else:
+
+        # load system configuration file
+        try:
+            config = conf.load_conf()
+        except conf.FileError:
+            print(
+                'Configuration file not found at {}'.format(
+                    conf.confpath
+                )
+            )
+            return 1
+        except conf.ParseError:
+            print( 'Unable to parse configuration file.' )
+            return 1
+        except conf.ValidError as ve:
+            print( 'Configuration validity check failed: {}'.format( ve ) )
+            return 1
+
+        # configuration loaded successfully
+        else:
+
+            # iterate through each backup pair
+            paths = config[ 'back' ][ 'paths' ]
+            for pair in paths:
+
+                # set the list of arguments for this rsync run
+                sync_args = arguments + pair
+
+                # setup and execute rsync for this source-target pair
+                try:
+                    proc = subprocess.Popen(
+                        arguments,
+                        stdout = subprocess.PIPE,
+                        stderr = subprocess.STDOUT
+                    )
+                    output, errors = proc.communicate()
+
+                # error encountered
+                except subprocess.CalledProcessError as error:
+                    print(
+                        'Error executing rsync: {}'.format( error.output )
+                    )
+                    return 1
+
+                # rsync finished with a 0 status
+                else:
+
+                    # ZIH - temp code, make this log to a file or something
+                    print '--- EXECUTED ---'
+                    print subprocess.list2cmdline( sync_args )
+                    print '--- OUTPUT ---'
+                    print output
+                    print '--- ERRORS ---'
+                    print errors
+
+    # indicate the backup was executed successfully
     return 0
 
 
@@ -97,6 +190,13 @@ def main( argv ):
         add_help    = False
     )
     back_command.add_argument( *helpargs, **helpkwargs )
+    back_command.add_argument(
+        '-t',
+        '--test',
+        default = False,
+        help    = 'Runs a "test" backup without synchronizing any files.',
+        action  = 'store_true'
+    )
     back_command.set_defaults( call = backup )
 
     # set up the `sit` command parser
@@ -121,7 +221,5 @@ def main( argv ):
 
 #=============================================================================
 if __name__ == "__main__":
-    import os
-    import sys
     sys.exit( main( sys.argv ) )
 
