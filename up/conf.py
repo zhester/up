@@ -10,6 +10,7 @@ named `confpath`.
 
 
 import json
+import os
 import re
 
 
@@ -21,57 +22,139 @@ confpath = '/usr/local/etc/up.conf'
 
 
 #=============================================================================
-def load_conf( path = None ):
+class FileError( IOError ):
+    """
+    Thrown when there is a problem reading the configuration file.
+    """
+    pass
+
+
+#=============================================================================
+class ParseError( ValueError ):
+    """
+    Thrown when there is a problem parsing the configuration file.
+    """
+    pass
+
+
+#=============================================================================
+class ValidError( ValueError ):
+    """
+    Thrown when the configuration data is invalid.
+    """
+    pass
+
+
+#=============================================================================
+def load_conf( path = None, validate = True ):
     """
     Loads the configuration for use by the system.
 
     @param path Overrides the default path to the configuration file
     @return     The dictionary of configuration values
-    @throws     IOError if the config file could not be loaded/parsed
+    @throws     FileError if the config file could not be loaded from disk
+    @throws     ParseError if the config file could not be parsed
+    @throws     ValidError if the file contains an invalid configuration
     """
 
     # allow the path to be overridden locally
     path = confpath if path is None else path
 
-    # read and parse the config file
-    with open( path, 'r' ) as cfh:
-        conf = cfh.read()
-        conf = strip_comments( conf )
-        try:
-            data = json.loads( conf )
-        except ValueError:
-            raise IOError( 'Configuration file format is not JSON.' )
-        return data
+    # open the configuration file
+    try:
+        cfh = open( path, 'r' )
+    except IOError:
+        raise FileError( 'Unable to open config file {}'.format( path ) )
+
+    # read the config data, and strip comments
+    conf = cfh.read()
+    cfh.close()
+    conf = strip_comments( conf )
+
+    # parse the config file
+    try:
+        data = json.loads( conf )
+    except ValueError:
+        raise ParseError( 'Configuration file format is not JSON.' )
+
+    # make sure the user needs validation (they should)
+    if validate == True:
+
+        # validate basic sanity of config file
+        if ( 'back' not in data ) or ( 'paths' not in data[ 'back' ] ):
+            raise ValidError( 'Config file sanity check failed.' )
+
+        # validate backup paths
+        paths = data[ 'back' ][ 'paths' ]
+        for ( source, target ) in paths:
+            if os.path.exists( source ) == False:
+                raise ValidError(
+                    'Source "{}" does not exist.'.format( source )
+                )
+
+    # if we make it this far, the configuration is good
+    return data
+
+
+#=============================================================================
+# Support for comment stripping
+_quotes = '"\'`'
+_whites = ' \t\r\n'
+_patterns = {
+    'dqs' : r'"[^"\\\r\n]*(?:\\.[^"\\\r\n]*)*"',
+    'mqs' : r'[{0}][^{0}\\\r\n]*(?:\\.[^{0}\\\r\n]*)*[{0}]'.format( _quotes ),
+    'csc' : r'/\*(?:.|[\r\n])*?\*/',
+    'ssc' : r'(?://|#).*$',
+    'quotes' : _quotes,
+    'whites' : _whites
+}
+_pattern = re.compile(
+    '({mqs})|[{whites}]?{csc}[{whites}]?|{ssc}'.format( **_patterns ),
+    re.MULTILINE
+)
+
+
+#=============================================================================
+def _replacer( match ):
+    """
+    Replacement function for `re.sub()` callbacks.
+
+    @param match The MatchObject instance for the current match
+    @return      The string to use in place of the current match
+    """
+
+    # get the entire match string and the first subgroup
+    g0, g1 = match.group( 0, 1 )
+
+    # string literal was matched, do not remove it from the subject string
+    if g1 is not None:
+        return g1
+
+    # C-style comments with no surrounding space are replaced with a space
+    #   to allow "BEFORE/* ... */AFTER" to become "BEFORE AFTER"
+    if g0.startswith( '/*' ) and g0.endswith( '*/' ):
+        return ' '
+
+    # restore optionally-matched surrounding whitespace characters
+    replace = ''
+    if g0[ 0 ] in _whites:
+        replace += g0[ 0 ]
+    if g0[ -1 ] in _whites:
+        replace += g0[ -1 ]
+    return replace
 
 
 #=============================================================================
 def strip_comments( string ):
     """
-    Adapted from a great answer on Stack Overflow:
-        http://stackoverflow.com/questions/241327/
+    Strips all code comments from the given string.
 
     @param string The string from which to strip comments
     @return       The string minus all comments
     """
 
-    # first, strip shell-style comments
-    string = re.sub( r'^\s*#.*$', '', string, flags = re.MULTILINE )
-
-    # define a replacement function to catch joined C-style comments
-    def replacer( match ):
-        capture = match.group( 0 )
-        if capture.startswith( '/' ):
-            return ' '
-        return capture
-
-    # compile a pattern to match all C- and C++-style comments
-    pattern = re.compile(
-        r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
-        ( re.DOTALL | re.MULTILINE )
-    )
-
-    # replace all comments
-    return re.sub( pattern, replacer, string )
+    # strip all comments
+    return re.sub( _pattern, _replacer, string )
 
 
 #=============================================================================
@@ -79,19 +162,25 @@ def main( argv ):
     """
     Built-in module testing.
     """
+
+    #=========================================================================
+    # configuration loading, parsing, validation testing
     project_path = os.path.dirname(
         os.path.dirname( os.path.realpath( __file__ ) )
     )
     test_path = os.path.join( project_path, 'data', 'up.conf' )
-    #print strip_comments( open( test_path, 'r' ).read() )
-    conf = load_conf( test_path )
-    json.dump( conf, sys.stdout, indent = 2 )
-    sys.stdout.write( '\n' )
+
+    try:
+        conf = load_conf( test_path )
+    except ValidError as ve:
+        print( 'ValidError: {}'.format( ve ) )
+    else:
+        json.dump( conf, sys.stdout, indent = 2 )
+        sys.stdout.write( '\n' )
 
 
 #=============================================================================
 if __name__ == "__main__":
-    import os
     import sys
     sys.exit( main( sys.argv ) )
 
