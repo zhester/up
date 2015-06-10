@@ -77,6 +77,12 @@ def load_conf( path = None, validate = True ):
     except ValueError:
         raise ParseError( 'Configuration file format is not JSON.' )
 
+    # perform helpful path manipulation/sanitation
+    if ( 'back' in data ) and ( 'paths' in data[ 'back' ] ):
+        for pair in data[ 'back' ][ 'paths' ]:
+            pair[ 0 ] = os.path.expanduser( pair[ 0 ] )
+            pair[ 1 ] = os.path.expanduser( pair[ 1 ] )
+
     # make sure the user needs validation (they should)
     if validate == True:
 
