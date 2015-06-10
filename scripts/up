@@ -29,7 +29,20 @@ __version__ = '0.0.0'
 # Module Variables
 
 _rsync       = '/usr/local/bin/rsync'
-_rsync_flags = [ '-avz', '--delete' ]
+_rsync_flags = [ '-Flrtvz', '--delete' ]
+_rsync_extra = {
+    'include' : [],
+    'exclude' : [ '.git/', '.svn/' ],
+    'filter'  : [ 'dir-merge,- .gitignore' ]
+}
+
+# -F : filter using .rsync-filter files
+# -l : copy links as-is
+# -n : dry run flag
+# -r : recursive
+# -t : maintain timestamps
+# -v : be verbose on stdout
+# -z : use compression
 
 
 #=============================================================================
@@ -41,78 +54,73 @@ def backup( args ):
     @return     Shell exit status (0 on success)
     """
 
-    # set basic backup command arguments
-    arguments = [ _rsync ] + _rsync_flags
-
     # check for a test command
     if args.test == True:
 
-        # load the test configuration file without validation
-        cfile  = os.path.join( os.path.dirname( _pwd ), 'data', 'up.conf' )
-        config = conf.load_conf( cfile, validate = False )
-        paths  = config[ 'back' ][ 'paths' ]
+        # add a switch to perform a dry run
+        _rsync_flags.append( '-n' )
 
-        # display the commands that would be run for each backup
-        for pair in paths:
-            sync_args = arguments + pair
-            print( subprocess.list2cmdline( sync_args ) )
+    # set basic backup command arguments
+    arguments = [ _rsync ] + _rsync_flags
 
-    # not a test command
+    # add extra command arguments
+    for flag, value in _rsync_extra.items():
+        flag = '--' + flag
+        if type( value ) is list:
+            for item in value:
+                arguments.extend( [ flag, item ] )
+        elif type( value ) is str:
+            arguments.extend( [ flag, value ] )
+        elif ( type( value ) is bool ) and ( value == True ):
+            arguments.append( flag )
+
+    # load system configuration file
+    try:
+        config = conf.load_conf()
+    except conf.FileError:
+        print( 'Configuration file not found at {}'.format( conf.confpath ) )
+        return 1
+    except conf.ParseError:
+        print( 'Unable to parse configuration file.' )
+        return 1
+    except conf.ValidError as ve:
+        print( 'Configuration validity check failed: {}'.format( ve ) )
+        return 1
+
+    # configuration loaded successfully
     else:
 
-        # load system configuration file
-        try:
-            config = conf.load_conf()
-        except conf.FileError:
-            print(
-                'Configuration file not found at {}'.format(
-                    conf.confpath
+        # iterate through each backup pair
+        paths = config[ 'back' ][ 'paths' ]
+        for pair in paths:
+
+            # set the list of arguments for this rsync run
+            sync_args = arguments + pair
+
+            # setup and execute rsync for this source-target pair
+            try:
+                proc = subprocess.Popen(
+                    sync_args,
+                    stdout = subprocess.PIPE,
+                    stderr = subprocess.STDOUT
                 )
-            )
-            return 1
-        except conf.ParseError:
-            print( 'Unable to parse configuration file.' )
-            return 1
-        except conf.ValidError as ve:
-            print( 'Configuration validity check failed: {}'.format( ve ) )
-            return 1
+                output, errors = proc.communicate()
 
-        # configuration loaded successfully
-        else:
+            # error encountered
+            except subprocess.CalledProcessError as error:
+                print( 'Error executing rsync: {}'.format( error.output ) )
+                return 1
 
-            # iterate through each backup pair
-            paths = config[ 'back' ][ 'paths' ]
-            for pair in paths:
+            # rsync finished with a 0 status
+            else:
 
-                # set the list of arguments for this rsync run
-                sync_args = arguments + pair
-
-                # setup and execute rsync for this source-target pair
-                try:
-                    proc = subprocess.Popen(
-                        arguments,
-                        stdout = subprocess.PIPE,
-                        stderr = subprocess.STDOUT
-                    )
-                    output, errors = proc.communicate()
-
-                # error encountered
-                except subprocess.CalledProcessError as error:
-                    print(
-                        'Error executing rsync: {}'.format( error.output )
-                    )
-                    return 1
-
-                # rsync finished with a 0 status
-                else:
-
-                    # ZIH - temp code, make this log to a file or something
-                    print '--- EXECUTED ---'
-                    print subprocess.list2cmdline( sync_args )
-                    print '--- OUTPUT ---'
-                    print output
-                    print '--- ERRORS ---'
-                    print errors
+                # ZIH - temp code, make this log to a file or something
+                print '--- EXECUTED ---'
+                print subprocess.list2cmdline( sync_args )
+                print '--- OUTPUT ---'
+                print output
+                print '--- ERRORS ---'
+                print errors
 
     # indicate the backup was executed successfully
     return 0
@@ -159,7 +167,20 @@ def main( argv ):
     }
 
     # set up the root argument parser
+    parser.add_argument(
+        '-c',
+        '--config',
+        default = conf.confpath,
+        help    = 'Override the default configuration path.'
+    )
     parser.add_argument( *helpargs, **helpkwargs )
+    parser.add_argument(
+        '-t',
+        '--test',
+        default = False,
+        help    = 'Execute inline tests.',
+        action  = 'store_true'
+    )
     parser.add_argument(
         '-v',
         '--version',
@@ -167,13 +188,6 @@ def main( argv ):
         help    = 'Display script version and exit.',
         action  = 'version',
         version = __version__
-    )
-    parser.add_argument(
-        '-t',
-        '--test',
-        default = False,
-        help    = 'Execute inline tests.',
-        action  = 'store_true'
     )
 
     # configure sub-command parsing
@@ -211,6 +225,9 @@ def main( argv ):
 
     # parse the arguments
     args = parser.parse_args( argv[ 1 : ] )
+
+    # possibly override the config file path
+    conf.confpath = args.config
 
     # call the appropriate, arguments-aware function
     result = args.call( args )
