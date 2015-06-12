@@ -8,6 +8,7 @@ See README.md for more information.
 """
 
 
+import logging
 import os
 import subprocess
 import sys
@@ -38,7 +39,7 @@ _rsync_extra = {
 
 # -F : filter using .rsync-filter files
 # -l : copy links as-is
-# -n : dry run flag
+# -n : dry run
 # -r : recursive
 # -t : maintain timestamps
 # -v : be verbose on stdout
@@ -46,12 +47,13 @@ _rsync_extra = {
 
 
 #=============================================================================
-def backup( args ):
+def backup( args, config ):
     """
     Executes configured backups.
 
-    @param args The argparse argument object
-    @return     Shell exit status (0 on success)
+    @param args   The argparse argument object
+    @param config The system configuration object
+    @return       Shell exit status (0 on success)
     """
 
     # check for a test command
@@ -74,65 +76,56 @@ def backup( args ):
         elif ( type( value ) is bool ) and ( value == True ):
             arguments.append( flag )
 
-    # load system configuration file
-    try:
-        config = conf.load_conf()
-    except conf.FileError:
-        print( 'Configuration file not found at {}'.format( conf.confpath ) )
-        return 1
-    except conf.ParseError:
-        print( 'Unable to parse configuration file.' )
-        return 1
-    except conf.ValidError as ve:
-        print( 'Configuration validity check failed: {}'.format( ve ) )
-        return 1
+    # iterate through each backup pair
+    paths = config[ 'back' ][ 'paths' ]
+    for pair in paths:
 
-    # configuration loaded successfully
-    else:
+        # set the list of arguments for this rsync run
+        sync_args = arguments + pair
 
-        # iterate through each backup pair
-        paths = config[ 'back' ][ 'paths' ]
-        for pair in paths:
+        # log backup event header
+        logging.info( '### Starting File Backup ###' )
+        logging.info( '## Executing ##' )
+        logging.info( subprocess.list2cmdline( sync_args ) )
 
-            # set the list of arguments for this rsync run
-            sync_args = arguments + pair
+        # setup and execute rsync for this source-target pair
+        try:
+            proc = subprocess.Popen(
+                sync_args,
+                stdout = subprocess.PIPE,
+                stderr = subprocess.STDOUT
+            )
+            output, errors = proc.communicate()
 
-            # setup and execute rsync for this source-target pair
-            try:
-                proc = subprocess.Popen(
-                    sync_args,
-                    stdout = subprocess.PIPE,
-                    stderr = subprocess.STDOUT
-                )
-                output, errors = proc.communicate()
+        # error encountered
+        except subprocess.CalledProcessError as error:
+            logging.error( 'Error executing rsync: {}'.format( error.output ) )
+            return 1
 
-            # error encountered
-            except subprocess.CalledProcessError as error:
-                print( 'Error executing rsync: {}'.format( error.output ) )
-                return 1
+        # rsync finished with a 0 status
+        else:
 
-            # rsync finished with a 0 status
-            else:
+            # check for any output on stderr
+            if errors is not None:
+                logging.warning( '## rsync Errors ##' )
+                logging.warning( errors )
 
-                # ZIH - temp code, make this log to a file or something
-                print '--- EXECUTED ---'
-                print subprocess.list2cmdline( sync_args )
-                print '--- OUTPUT ---'
-                print output
-                print '--- ERRORS ---'
-                print errors
+            # log additional information from stdout
+            logging.info( '## rsync Output ##' )
+            logging.info( output )
 
     # indicate the backup was executed successfully
     return 0
 
 
 #=============================================================================
-def situp( args ):
+def situp( args, config ):
     """
     Executes configured updates.
 
-    @param args The argparse argument object
-    @return     Shell exit status (0 on success)
+    @param args   The argparse argument object
+    @param config The system configuration object
+    @return       Shell exit status (0 on success)
     """
 
     ### ZIH
@@ -229,8 +222,34 @@ def main( argv ):
     # possibly override the config file path
     conf.confpath = args.config
 
-    # call the appropriate, arguments-aware function
-    result = args.call( args )
+    # load system configuration file
+    try:
+        config = conf.load_conf()
+    except conf.FileError:
+        print( 'Configuration file not found at {}'.format( conf.confpath ) )
+        return 1
+    except conf.ParseError:
+        print( 'Unable to parse configuration file.' )
+        return 1
+    except conf.ValidError as ve:
+        print( 'Configuration validity check failed: {}'.format( ve ) )
+        return 1
+
+    # determine the best log file path
+    logfile = config[ 'up' ][ 'logfile' ]
+    if os.access( os.path.dirname( logfile ), ( os.W_OK | os.X_OK ) ) == False:
+        logfile = os.path.expanduser( '~/up.log' )
+
+    # initialize the logging subsystem
+    logging.basicConfig(
+        filename = logfile,
+        level    = logging.INFO,
+        format   = '%(asctime)s :: %(levelname)s :: %(message)s',
+        datefmt  = '%Y-%m-%d %H:%M:%S'
+    )
+
+    # call the appropriate function
+    result = args.call( args, config )
 
     # return result of command
     return result

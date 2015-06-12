@@ -87,15 +87,22 @@ def load_conf( path = None, validate = True ):
     if validate == True:
 
         # validate basic sanity of config file
-        if ( 'back' not in data ) or ( 'paths' not in data[ 'back' ] ):
+        if     (      'up' not in data           ) \
+            or ( 'logfile' not in data[ 'up' ]   ) \
+            or (    'back' not in data           ) \
+            or (   'paths' not in data[ 'back' ] ) :
             raise ValidError( 'Config file sanity check failed.' )
 
         # validate backup paths
         paths = data[ 'back' ][ 'paths' ]
         for ( source, target ) in paths:
-            if os.path.exists( source ) == False:
+            if ( ':' not in source ) and ( os.path.exists( source ) == False ):
                 raise ValidError(
                     'Source "{}" does not exist.'.format( source )
+                )
+            if ( ':' not in target ) and ( os.path.exists( target ) == False ):
+                raise ValidError(
+                    'Target "{}" does not exist.'.format( target )
                 )
 
     # if we make it this far, the configuration is good
@@ -103,12 +110,17 @@ def load_conf( path = None, validate = True ):
 
 
 #=============================================================================
-# Support for comment stripping
+# Support for comment stripping (see hzpy/modules/comments.py)
+_missme = r'(?:(?!(?P=quote))|[^\\\r\n])'
 _quotes = '"\'`'
 _whites = ' \t\r\n'
 _patterns = {
     'dqs' : r'"[^"\\\r\n]*(?:\\.[^"\\\r\n]*)*"',
-    'mqs' : r'[{0}][^{0}\\\r\n]*(?:\\.[^{0}\\\r\n]*)*[{0}]'.format( _quotes ),
+    'sqs' : r"'[^'\\\r\n]*(?:\\.[^'\\\r\n]*)*'",
+    'mqs' : r'(?P<quote>[{q}]){m}*(?:\\.{m}*)*(?P=quote)'.format(
+        q = _quotes,
+        m = _missme
+    ),
     'csc' : r'/\*(?:.|[\r\n])*?\*/',
     'ssc' : r'(?://|#).*$',
     'quotes' : _quotes,
