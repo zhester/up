@@ -1,0 +1,53 @@
+#############################################################################
+#
+# Initial `up` Configuration File
+#
+# Each tool has its own section in the configuration directives.
+#
+#############################################################################
+
+{
+
+    #========================================================================
+    # Global Tool Configuration
+    "up" : {
+
+        "logfile" : "/var/log/up.log"
+
+    },
+
+    #========================================================================
+    # `back` Tool Configuration
+    "back" : {
+
+        #====================================================================
+        # This is the list of backup sources and their destinations.
+        #
+        # Note: It's probably important to leave off the trailing slash from
+        #       the source directories since that tells rsync that both the
+        #       source and destination must be the same.  Without the slash,
+        #       rsync will place the source directory inside the destination.
+        "paths" : [
+
+            # Here's an example of backing up everything in `/etc` to `/tmp`
+            #[ "/etc", "/tmp/etc_backup" ]
+
+            # Here's an example of backing up the current user's home
+            # directory to `/tmp`.
+            # Note: The configuration file is JSON, and path entries need to
+            # be separated by commas.
+            #, [ "~", "/tmp/home_backup" ]
+
+        ]
+
+    },
+
+
+    #========================================================================
+    # `sit` Tool Configuration
+    "sit" : {
+    }
+
+
+}
+

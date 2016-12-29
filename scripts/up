@@ -15,13 +15,14 @@ import sys
 
 
 # check for and set up development path
-_pwd = os.path.dirname( os.path.realpath( __file__ ) )
-_modules_path = os.path.join( os.path.dirname( _pwd ), 'up' )
+_pwd          = os.path.dirname( os.path.realpath( __file__ ) )
+_dev_path     = os.path.dirname( _pwd )
+_modules_path = os.path.join( _dev_path, 'up' )
 if os.path.exists( _modules_path ):
-    sys.path.append( _modules_path )
+    sys.path.append( _dev_path )
 
 # up module imports
-import conf
+import up.conf
 
 
 __version__ = '0.0.0'
@@ -163,7 +164,7 @@ def main( argv ):
     parser.add_argument(
         '-c',
         '--config',
-        default = conf.confpath,
+        default = up.conf.confpath,
         help    = 'Override the default configuration path.'
     )
     parser.add_argument( *helpargs, **helpkwargs )
@@ -220,18 +221,18 @@ def main( argv ):
     args = parser.parse_args( argv[ 1 : ] )
 
     # possibly override the config file path
-    conf.confpath = args.config
+    up.conf.confpath = args.config
 
     # load system configuration file
     try:
-        config = conf.load_conf()
-    except conf.FileError:
-        print( 'Configuration file not found at {}'.format( conf.confpath ) )
+        config = up.conf.load_conf()
+    except up.conf.FileError:
+        print( 'Configuration file not found at {}'.format( up.conf.confpath ) )
         return 1
-    except conf.ParseError:
+    except up.conf.ParseError:
         print( 'Unable to parse configuration file.' )
         return 1
-    except conf.ValidError as ve:
+    except up.conf.ValidError as ve:
         print( 'Configuration validity check failed: {}'.format( ve ) )
         return 1
 
